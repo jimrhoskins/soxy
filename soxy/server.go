@@ -53,12 +53,13 @@ func load(path string, routes *router.Router) {
       if len(tokens) != 3 {
         log.Fatal("Proxy requires 2 arguments: host and target")
       }
-      routes.Add(tokens[1], proxy.NewProxy(tokens[2]))
+      routes.Add(tokens[1], proxy.New(tokens[2]))
     case "PROCFILE":
       fmt.Println("procfile...", tokens[1:])
       routes.Add(tokens[1], procfile.NewHandler(tokens[2]))
     case "ALIAS":
       fmt.Println("ala...", tokens[1:])
+      routes.Alias(tokens[1], tokens[2])
     }
   })
 }
@@ -67,7 +68,7 @@ func load(path string, routes *router.Router) {
 func main() {
   flag.Parse()
 
-  routes := router.NewRouter()
+  routes := router.New()
   load(*configFile, routes)
 
   http.Handle("/", routes)

@@ -20,7 +20,7 @@ func (_ *DefaultErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request){
   http.Error(w, "Could not find route!", http.StatusInternalServerError)
 }
 
-func NewRouter () *Router {
+func New () *Router {
   r := new(Router)
   r.routes = make(map[string] http.Handler)
   r.aliases = make(map[string] string)
@@ -28,39 +28,39 @@ func NewRouter () *Router {
   return r
 }
 
-func (router *Router) ServeHTTP (w http.ResponseWriter, r *http.Request) {
+func (self *Router) ServeHTTP (w http.ResponseWriter, r *http.Request) {
   host := strings.Split(r.Host, ":")[0]
   host = strings.ToLower(host)
 
-  handler := router.getHandler(host)
+  handler := self.getHandler(host)
   handler.ServeHTTP(w, r)
 }
 
-func (router *Router) getHandler (host string) http.Handler {
-  handler, ok := router.routes[host]
+func (self *Router) getHandler (host string) http.Handler {
+  handler, ok := self.routes[host]
   if ok {
     return handler
   }
 
-  alias, ok := router.aliases[host]
+  alias, ok := self.aliases[host]
   if ok {
-    return router.getHandler(alias)
+    return self.getHandler(alias)
   }
 
-  return router.DefaultHandler
+  return self.DefaultHandler
 }
 
 
-func (router *Router) Add (host string, handler http.Handler) {
+func (self *Router) Add (host string, handler http.Handler) {
   host = strings.ToLower(host)
-  router.routes[host] = handler
+  self.routes[host] = handler
 }
 
-func (router *Router) Alias (host, to string) {
+func (self *Router) Alias (host, to string) {
   host = strings.ToLower(host)
   to = strings.ToLower(to)
 
-  router.aliases[host] = to
+  self.aliases[host] = to
 }
 
 

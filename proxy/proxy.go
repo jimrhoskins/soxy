@@ -13,68 +13,51 @@ type Proxy struct {
   Client http.Client
 }
 
-func NewProxy (target string) *Proxy {
+func New (target string) *Proxy {
   p := new(Proxy)
   p.Target = target
   return p
 }
 
 
-func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-  if r.Header.Get("Upgrade") != "websocket" {
-    p.proxyHTTP(w, r)
+func (self *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+  if r.Header.Get("Upgrade") == "websocket" {
+    self.proxyWebSocket(w, r)
   } else {
-    p.proxyWebSocket(w, r)
+    self.proxyHTTP(w, r)
   }
 }
 
 
 // proxyHTTP will proxy the http.Request r to the new hos
 // This does modify r in the process of proxying the request
-func (p *Proxy) proxyHTTP(w http.ResponseWriter, r *http.Request){
+func (self *Proxy) proxyHTTP(w http.ResponseWriter, r *http.Request){
 
   r.Header.Add("X-Forwarded-Host", r.Host)
   r.Header.Add("X-Forwarded-For", r.RemoteAddr)
 
-  r.Host = p.Target
-  r.URL.Host = p.Target
+  r.Host = self.Target
+  r.URL.Host = self.Target
 
+  // Reset Request properteis for Client
   r.URL.Scheme = "http"
   r.RequestURI = ""
 
 
-  resp, err := p.Client.Do(r)
+  resp, err := self.Client.Do(r)
   if err != nil {
-    fmt.Println(err)
+    http.Error(w, BAD_GATEWAY, http.StatusBadGateway)
     return
   }
 
 
+  // Copy response header
   for key, _ := range resp.Header {
     w.Header().Set(key, resp.Header.Get(key))
   }
   w.WriteHeader(resp.StatusCode)
 
   io.Copy(w, resp.Body)
-}
-
-// Couple creates a full-duplex connection betwee 2 io.ReadWriters
-// It returns after both ends read an EOF or other error
-func Couple(a, b io.ReadWriter) {
-  copydone := make(chan int, 2)
-
-  go func () {
-    io.Copy(a, b)
-    copydone <- 1
-  }()
-
-  go func () {
-    io.Copy(b,a)
-    copydone <- 1
-  }()
-
-  <-copydone
-  <-copydone
 }
 
 // proxyWebSocket will proxy a websocket connection from r to the host
@@ -99,55 +82,33 @@ func (p *Proxy) proxyWebSocket(w http.ResponseWriter, r *http.Request) {
   }
   defer server.Close()
 
-  // Write recieved header to server
-  fmt.Fprintf(server, "%s %s %s\r\n",r.Method, r.URL.RequestURI(), r.Proto)
-  r.Header.Write(server)
-  fmt.Fprintf(server, "\r\n\r\n")
-
-  Couple(client, server)
+  writeHeader(r, server)
+  duplex(client, server)
 
 }
 
-type req struct{
-  W http.ResponseWriter
-  R *http.Request
-  done chan bool
+func writeHeader(r *http.Request, target io.Writer){
+  fmt.Fprintf(target, "%s %s %s\r\n",r.Method, r.URL.RequestURI(), r.Proto)
+  r.Header.Write(target)
+  fmt.Fprintf(target, "\r\n\r\n")
 }
 
-func request(w http.ResponseWriter, r *http.Request) *req {
-  return &req{w, r, make(chan bool)}
-}
+func duplex(a, b io.ReadWriter) {
+  copydone := make(chan int, 2)
 
-type LoadBalancer struct {
-  handlers []http.Handler
-  requests chan *req
-}
-
-func NewLoadBalancer(h ...http.Handler) *LoadBalancer {
-  r := &LoadBalancer{
-    handlers: h,
-    requests: make(chan *req),
-  }
-
-  go func(){
-    for {
-      for _, handler := range r.handlers {
-        request := <-r.requests
-        go func (h http.Handler){
-          h.ServeHTTP(request.W, request.R)
-          request.done <-true
-        }(handler)
-      }
-    }
+  go func () {
+    io.Copy(a, b)
+    copydone <- 1
   }()
 
-  return r
+  go func () {
+    io.Copy(b,a)
+    copydone <- 1
+  }()
+
+  <-copydone
+  <-copydone
 }
 
-func (lb *LoadBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-  req := request(w, r)
-  lb.requests <- req
-  <-req.done
-}
-
+const BAD_GATEWAY string = `Error 502: Bad Gateway`
 
